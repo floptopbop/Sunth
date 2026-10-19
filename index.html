@@ -11,7 +11,10 @@ body.dark{--sheet:#171311;--sheet2:#1c1714;--ink:#cdbca5;--dim:#76695c;--rule:#2
 *{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;color:var(--ink);font-family:var(--sans);font-size:11px;line-height:1.35;overflow:hidden;overscroll-behavior:none}
 body.paper{background:#e8dfca}body.dark{background:#0d0b0a}
-#infect{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;pointer-events:none;z-index:9}
+.mold{position:absolute;left:0;width:100%;pointer-events:none;z-index:3}
+.mold.top{top:0}.mold.bot{bottom:0}
+#book,#deck{overflow:hidden}
+#hudtxt .marg{font-family:var(--serif);font-style:italic;color:var(--accent);margin:0}
 #cv{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;display:block;touch-action:none}
 button{font:inherit;font-size:10.5px;color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:2px;padding:3px 8px;white-space:nowrap;touch-action:manipulation;cursor:pointer;flex:0 0 auto}
 button.on{border-color:var(--accent);background:var(--onbg)}
@@ -83,9 +86,8 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;bac
 </head>
 <body class="dark">
 <canvas id="cv"></canvas>
-<canvas id="infect"></canvas>
 <div id="book">
- <div id="bhead"><button id="bPrev" aria-label="Previous chapter">‹</button><span id="bfolio">486</span><span id="btitle">The specimen</span><button id="bNext" aria-label="Next chapter">›</button><span id="hudtxt"></span><button id="bToggle">Open</button><span class="build">b7</span></div>
+ <div id="bhead"><button id="bPrev" aria-label="Previous chapter">‹</button><span id="bfolio">486</span><span id="btitle">The specimen</span><button id="bNext" aria-label="Next chapter">›</button><span id="hudtxt"></span><button id="bToggle">Open</button><span class="build">b8</span></div>
  <div id="bpage"></div>
 </div>
 <div id="deck">
@@ -681,7 +683,7 @@ function sense(center,r,amount){const o=S;if(!o||!LAW.signal||amount<=0)return;c
 <script>
 'use strict';
 // ===================== TABULA UI — engraved plate, surgery, the book =====================
-const BUILD='7';
+const BUILD='8';
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const TISSNAME=['core','mid tissue','membrane','conduit'];
@@ -1218,6 +1220,7 @@ function updateHead(){if(!S)return;const m=metrics,h=$('hudtxt');if(!m){h.textCo
  if(rhythmOn)parts.push(`<span>pulse ${m.period.toFixed(2)} s</span>`);
  if(S.pressure!=='none'){const p=PRESSURES.find(q=>q.id===S.pressure);parts.push(`<span>Fig. ${p.num} ${P.pI.toFixed(2)}</span>`);}
  if(S.compounds.length)parts.push(`<span>${S.compounds.map(c=>c.code.replace('Compound ','C')).join(' ')} in tissue</span>`);
+ if(margText&&performance.now()-margT<7000){h.innerHTML=`<span class="marg">${rot(margText,5)}</span>`;return;}
  h.innerHTML=parts.map((p,k)=>p.replace(/>([^<]*)</,(m,t)=>'>'+rot(t,k*7)+'<')).join('');}
 const featList=keys=>keys.map(k=>FEATNAME[k]).join(', ');
 function updateAutopsy(){const m=metrics,c=cls;if(!m||!c||!$('verdict'))return;
@@ -1239,7 +1242,7 @@ function updateAutopsy(){const m=metrics,c=cls;if(!m||!c||!$('verdict'))return;
   ['Rhythm',m.rhythmR>0.35?`period ${m.period.toFixed(2)} s, coherence ${m.rhythmR.toFixed(2)}`:'no coordinated rhythm'],
   ['Firing',`${m.fireRate.toFixed(2)} per node per second${m.severedActive?`; ${m.severedActive} severed bod${m.severedActive>1?'ies':'y'} still firing`:''}`],
   ['Compounds',S.compounds.length?S.compounds.map(c=>`${c.code}, load ${c.total.toFixed(1)}, effects unknown`).join('; '):'none in tissue'],
-  ['Contamination',`${(infection*100).toFixed(0)}% of the plate${hyphae.length?`; ${hyphae.length} filaments growing`:''}`],
+  ['Contamination',`${(infection*100).toFixed(0)}% of the record${hyphae.length?`; ${hyphae.length} growths in the margins`:''}`],
   ['Repair',`mean scarring ${m.scar.toFixed(3)}, mean fatigue ${m.fat.toFixed(3)}`],
   ['Shape',`shell radius ${(m.memR/S.init.memR*100).toFixed(0)}%, height ${(m.ystd/S.init.ystd*100).toFixed(0)}% of birth`]];
  $('report').innerHTML=rows.map(r=>`<div>${r[0]}</div><div>${r[1]}</div>`).join('');drawSpark();updateMemory();}
@@ -1313,48 +1316,60 @@ document.addEventListener('visibilitychange',()=>{
  chunk();});
 let awayNote=0;
 
-// ---------- contamination: the pathology does not stay on the slide ----------
-const IC=$('infect'),ictx=IC.getContext('2d'),vigC=document.createElement('canvas');
+// ---------- contamination: the pathology leaves the slide and gets into the paperwork ----------
+const vigC=document.createElement('canvas');
+const moldB=document.createElement('canvas'),moldD=document.createElement('canvas');moldB.className='mold top';moldD.className='mold bot';
+$('book').appendChild(moldB);$('deck').appendChild(moldD);
+const mctx={b:moldB.getContext('2d'),d:moldD.getContext('2d')},msz={b:[0,0],d:[0,0]};
 let infection=0,hyphae=[],hId=0,margIdx=0,margText='',margT=0,prevInfB=0;
 const MARGINALIA=[[0.12,'The specimen appears to respond to being observed.'],[0.22,'The fibers are not where I left them.'],
- [0.32,'I have begun to doubt the earlier figures.'],[0.42,'Something is growing on the glass, not in the dish.'],
+ [0.32,'I have begun to doubt the earlier figures.'],[0.42,'Something is growing in the margins of this book.'],
  [0.52,'It is no longer clear which side of the lens the pathology is on.'],[0.62,'The atlas has no page for this.'],
- [0.74,'I am no longer certain which of us is being examined.'],[0.88,'The plate is the specimen now.']];
+ [0.74,'I am no longer certain which of us is being examined.'],[0.88,'The book is the specimen now.']];
 function infectTarget(){if(!feat)return 0;return clamp(0.45*feat.broken+0.7*feat.necro+0.35*feat.frag+0.25*feat.strain+0.15*feat.rewire+(cls&&cls.kind==='anomaly'?0.25:0),0,1);}
-function sizeInfect(){const old=document.createElement('canvas');old.width=IC.width;old.height=IC.height;if(IC.width)old.getContext('2d').drawImage(IC,0,0);
- IC.width=Math.round(W*DPR);IC.height=Math.round(HH*DPR);ictx.setTransform(1,0,0,1,0,0);if(old.width)ictx.drawImage(old,0,0,old.width,old.height,0,0,IC.width,IC.height);
- vigC.width=Math.max(1,Math.round(W/2));vigC.height=Math.max(1,Math.round(HH/2));const v=vigC.getContext('2d'),gr=v.createRadialGradient(vigC.width/2,vigC.height/2,Math.min(vigC.width,vigC.height)*0.32,vigC.width/2,vigC.height/2,Math.max(vigC.width,vigC.height)*0.72);
- gr.addColorStop(0,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(70,8,4,0.85)');v.fillStyle=gr;v.fillRect(0,0,vigC.width,vigC.height);}
-function clearInfect(){ictx.setTransform(1,0,0,1,0,0);ictx.clearRect(0,0,IC.width,IC.height);infection=0;hyphae=[];margIdx=0;margText='';prevInfB=S?S.cnt.broken:0;}
-function spawnHypha(x,y,a){if(hyphae.length>=30+230*infection)return;hId++;hyphae.push({x,y,a,id:hId,life:300+H(hId,4.1)*700});}
+function sizeMold1(cvs,key,h){const w=W;const old=document.createElement('canvas');old.width=cvs.width;old.height=cvs.height;if(cvs.width)old.getContext('2d').drawImage(cvs,0,0);
+ cvs.style.height=h+'px';cvs.width=Math.round(w*DPR);cvs.height=Math.round(h*DPR);const c=mctx[key];c.setTransform(1,0,0,1,0,0);
+ if(old.width)c.drawImage(old,0,0,old.width,old.height,0,0,cvs.width,cvs.height);msz[key]=[w,h];}
+function sizeInfect(){sizeMold1(moldB,'b',Math.round(HH*0.34)+40);sizeMold1(moldD,'d',170);
+ vigC.width=Math.max(1,Math.round(W/2));vigC.height=Math.max(1,Math.round(HH/2));const v=vigC.getContext('2d'),gr=v.createRadialGradient(vigC.width/2,vigC.height/2,Math.min(vigC.width,vigC.height)*0.38,vigC.width/2,vigC.height/2,Math.max(vigC.width,vigC.height)*0.72);
+ gr.addColorStop(0,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(70,8,4,0.8)');v.fillStyle=gr;v.fillRect(0,0,vigC.width,vigC.height);}
+function clearInfect(){for(const k of ['b','d']){const c=mctx[k];c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,c.canvas.width,c.canvas.height);}
+ infection=0;hyphae=[];margIdx=0;margText='';prevInfB=S?S.cnt.broken:0;rotPages(true);}
+// mold starts at the edge of a panel nearest the specimen and grows into the paper
+function seedMold(x){if(hyphae.length>=30+230*infection)return;hId++;const toBook=H(hId,8.8)<0.55;
+ if(toBook){const vis=Math.max(4,topH-1);hyphae.push({p:'b',x,y:vis-1,a:-Math.PI/2+(H(hId,2.2)-0.5)*1.6,id:hId,life:250+H(hId,4.1)*650});}
+ else{const top=msz.d[1]-deckH+1;hyphae.push({p:'d',x,y:top,a:Math.PI/2+(H(hId,2.2)-0.5)*1.6,id:hId,life:200+H(hId,4.1)*500});}}
 function infectFrame(dtf){const o=S;if(!o||!SZ||P.contagion<=0)return;
  const tgt=infectTarget();if(tgt>infection)infection=Math.min(tgt,infection+dtf*0.012*P.contagion);else infection=Math.max(0,infection-dtf*0.0015);
- // fresh tears seed growth on the glass
  if(o.cnt.broken>prevInfB){let budget=3;
   for(let f=o.F-1;f>=0&&budget>0;f--){if(o.alive[f]||o.broke[f]<o.time-dtf*1.5)continue;const a=o.fa[f],b=o.fb[f];if(SZ[a]<0||SZ[b]<0)continue;
-   if(H(f*0.91,o.tick*0.37)<(0.06+0.6*infection)*P.contagion){const x=(SX[a]+SX[b])/2,y=(SY[a]+SY[b])/2;spawnHypha(x,y,Math.atan2(y-view.cy,x-view.cx)+(H(f,2.2)-0.5));}budget--;}
+   if(H(f*0.91,o.tick*0.37)<(0.06+0.6*infection)*P.contagion)seedMold((SX[a]+SX[b])/2);budget--;}
   prevInfB=o.cnt.broken;}
- if(infection>0.45&&H(frameN*0.13,9.7)<(infection-0.45)*0.04*P.contagion){const e=H(frameN,3.3),edge=Math.floor(H(frameN,5.5)*4);
-  const x=edge===0?0:edge===1?W:e*W,y=edge===2?0:edge===3?HH:e*HH;spawnHypha(x,y,Math.atan2(view.cy-y,view.cx-x)+(H(frameN,1.1)-0.5));}
- if(!hyphae.length)return;
- const sp=(0.25+0.9*infection)*P.contagion;
- ictx.setTransform(DPR,0,0,DPR,0,0);ictx.beginPath();const spores=[];
- for(let k=hyphae.length-1;k>=0;k--){const h=hyphae[k];const x0=h.x,y0=h.y;
-  h.a+=(H(h.id*1.3,frameN*0.37)-0.5)*0.5;h.x+=Math.cos(h.a)*sp;h.y+=Math.sin(h.a)*sp;h.life--;
-  ictx.moveTo(x0,y0);ictx.lineTo(h.x,h.y);
-  if(H(h.id,frameN*1.7)<0.006*(0.5+infection))spawnHypha(h.x,h.y,h.a+(H(h.id,frameN)<0.5?-0.7:0.7));
-  if(H(h.id*2.9,frameN*0.53)<0.015)spores.push(h.x,h.y);
-  if(h.life<=0||h.x<-10||h.y<-10||h.x>W+10||h.y>HH+10)hyphae.splice(k,1);}
- ictx.strokeStyle=themeName==='paper'?'rgba(58,22,14,0.55)':'rgba(128,32,22,0.55)';ictx.lineWidth=0.7;ictx.lineCap='round';ictx.stroke();
- if(spores.length){ictx.fillStyle=themeName==='paper'?'rgba(58,22,14,0.7)':'rgba(150,40,26,0.7)';ictx.beginPath();for(let k=0;k<spores.length;k+=2)ictx.rect(spores[k]-0.8,spores[k+1]-0.8,1.6,1.6);ictx.fill();}
+ if(infection>0.4&&H(frameN*0.13,9.7)<(infection-0.4)*0.05*P.contagion)seedMold(H(frameN,3.3)*W);
+ if(hyphae.length){const sp=(0.22+0.8*infection)*P.contagion;
+  for(const key of ['b','d']){const c=mctx[key],[mw,mh]=msz[key];c.setTransform(DPR,0,0,DPR,0,0);c.beginPath();const spores=[];
+   for(let k=hyphae.length-1;k>=0;k--){const h=hyphae[k];if(h.p!==key)continue;const x0=h.x,y0=h.y;
+    h.a+=(H(h.id*1.3,frameN*0.37)-0.5)*0.55;h.x+=Math.cos(h.a)*sp;h.y+=Math.sin(h.a)*sp;h.life--;
+    c.moveTo(x0,y0);c.lineTo(h.x,h.y);
+    if(H(h.id,frameN*1.7)<0.007*(0.5+infection)&&hyphae.length<30+230*infection){hId++;hyphae.push({p:key,x:h.x,y:h.y,a:h.a+(H(h.id,frameN)<0.5?-0.7:0.7),id:hId,life:h.life*0.8});}
+    if(H(h.id*2.9,frameN*0.53)<0.015)spores.push(h.x,h.y);
+    if(h.life<=0||h.x<-4||h.y<-4||h.x>mw+4||h.y>mh+4)hyphae.splice(k,1);}
+   c.strokeStyle=themeName==='paper'?'rgba(70,40,22,0.5)':'rgba(140,40,28,0.5)';c.lineWidth=0.7;c.lineCap='round';c.stroke();
+   if(spores.length){c.fillStyle=themeName==='paper'?'rgba(70,40,22,0.65)':'rgba(160,48,30,0.65)';c.beginPath();for(let k=0;k<spores.length;k+=2)c.rect(spores[k]-0.8,spores[k+1]-0.8,1.6,1.6);c.fill();}}}
  while(margIdx<MARGINALIA.length&&infection>=MARGINALIA[margIdx][0]){margText=MARGINALIA[margIdx][1];margT=performance.now();ev(`Marginal note: “${margText}”`);margIdx++;}}
 const ROTG='ǝɐıʇɹ∅†·░ɯ';
 function rot(str,salt){if(infection<0.2||!str)return str;const p=(infection-0.2)*0.12,tb=Math.floor(performance.now()/700);let out='';
- for(let i=0;i<str.length;i++){const c=str[i];out+=(c!==' '&&H(i*1.7+salt,tb*0.31)<p)?ROTG[Math.floor(H(i+salt,tb)*ROTG.length)%ROTG.length]:c;}return out;}
-function drawContamination(){if(infection<=0.01)return;
- const pulse=clamp(aFast/(aSlow+1)-1,0,1);ctx.globalAlpha=Math.min(0.85,infection*(0.45+0.4*pulse));ctx.drawImage(vigC,0,0,W,HH);ctx.globalAlpha=1;
- if(margText&&performance.now()-margT<7000){const fade=1-Math.max(0,(performance.now()-margT-5500)/1500);ctx.globalAlpha=fade;ctx.fillStyle=TH.accent;
-  ctx.font='italic 12.5px "Iowan Old Style",Baskerville,Georgia,serif';const t=rot(margText,5);ctx.fillText(t,(W-ctx.measureText(t).width)/2,topH+40);ctx.globalAlpha=1;}}
+ for(let i=0;i<str.length;i++){const c=str[i];out+=(c!==' '&&c!=='\n'&&H(i*1.7+salt,tb*0.31)<p)?ROTG[Math.floor(H(i+salt,tb)*ROTG.length)%ROTG.length]:c;}return out;}
+// every text in the book and on the bench rots from its own original, so it recovers when the specimen does
+const ORIG=new WeakMap(),WROTE=new WeakMap();
+function rotPages(force){if(!force&&infection<0.2&&!rotDirty)return;rotDirty=infection>=0.2;
+ for(const root of [$('book'),$('deck')]){const tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n,k=0;
+  while((n=tw.nextNode())){const p=n.parentNode;if(!p||(p.closest&&p.closest('textarea,#hudtxt')))continue;
+   const cur=n.nodeValue;if(!ORIG.has(n)||WROTE.get(n)!==cur)ORIG.set(n,cur);
+   const nv=rot(ORIG.get(n),k++*3.7);if(nv!==cur)n.nodeValue=nv;WROTE.set(n,nv);}}}
+let rotDirty=false;
+function drawContamination(){if(infection<=0.05)return;
+ const pulse=clamp(aFast/(aSlow+1)-1,0,1);ctx.globalAlpha=Math.min(0.15,infection*0.12*(0.3+0.7*pulse));ctx.drawImage(vigC,0,0,W,HH);ctx.globalAlpha=1;}
 
 // ---------- wiring ----------
 $('bPrev').addEventListener('click',()=>turn(-1));$('bNext').addEventListener('click',()=>turn(1));
@@ -1368,7 +1383,9 @@ function loop(ts){requestAnimationFrame(loop);
  if(S&&(running||stepOnce)&&!catching){advance();{const o=S,fd=o.ring[(o.ringPos-1+o.ring.length)%o.ring.length];aFast+=(fd-aFast)*0.35;aSlow+=(fd-aSlow)*0.02;}listenFrame();infectFrame(P.dt);stepOnce=false;if(frameN%10===0&&LAY.core&&plateStyle==='anatomical')updateCoreHull();if(frameN%20===0)chooseLabels();}
  render();drainEvents();
  if(ts-uiT>250){uiT=ts;updateHead();}
- if(ts-panT>500){panT=ts;refreshBook(false);}}
+ if(ts-panT>500){panT=ts;refreshBook(false);}
+ if(ts-rotT>700){rotT=ts;rotPages(false);}}
+let rotT=0;
 function boot(){const now=Date.now();seedVal=1+Math.floor(H((now%100003)*0.0137,(now/997)%1009)*99990);camFromOrbit();loadAtlas();setTheme('dark');buildRows();layout();regrow();project();chooseLabels();requestAnimationFrame(loop);}
 try{boot();}catch(err){const h=$('hudtxt');if(h)h.textContent='Error: '+err.message;throw err;}
 
